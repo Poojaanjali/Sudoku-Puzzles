@@ -1,0 +1,592 @@
+---
+title: "sasproj"
+author: "Poojaanjali Vasu"
+date: "4/28/2020"
+output: 
+  html_document:   
+    code_download: yes
+    code_folding: hide
+    fig_height: 6
+    fig_width: 9
+  word_document: default
+runtime: shiny
+
+---
+<style type="text/css">
+
+body, td {
+   font-size: 12px;
+}
+code.r{
+  font-size: 10px;
+}
+pre {
+  font-size: 10px
+}
+h4.author { 
+    font-size: 20px;
+  font-family: "Times New Roman", Times, serif;
+  color: Black;
+  text-align: right;
+}
+</style>
+
+# {.tabset .tabset-fade .tabset-pills}
+
+## __Sudoko Platform__
+
+### {.tabset .tabset-fade}
+
+#### __Introduction__  
+
+><font size="2">
+This Statistical report presents  a clear overview of the Sudoko Analysis.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## __Manipulation of data__ 
+
+### {.tabset .tabset-fade}
+
+#### __Data Manipulation__ 
+
+```{r,eval=FALSE}
+
+
+
+library(tidyverse)
+# library(multcomp)
+
+setwd("/users/students/19251512/project/")
+
+# sudoku<-read.csv("3SudokuCombined.csv",stringsAsFactors = F)
+
+sudoku<-read.csv("3SudokuCombined.csv", header=T, na.strings=c("","NA"),stringsAsFactors = F)
+
+sudoku<-as_tibble(sudoku)
+
+#############################################################################
+#############################################################################
+#############################################################################
+#######################****** Phase 1 ******#################################
+#############################################################################
+#############################################################################
+#############################################################################
+
+########### Data Cleaning (#before,type,correct,sec )###############################
+
+glimpse(sudoku)
+
+
+# Class to factor
+
+sudoku$Class<-as.factor(sudoku$Class)
+
+# Response=Correct to factor
+
+sudoku$Correct<-factor(ifelse(sudoku$Correct=='Yes',1,0))
+
+
+# Time2=total time in sec (change it to numeric)
+
+sudoku$Time2<-suppressWarnings(as.numeric(sudoku$Time2))
+
+
+# Imputation and cleaning
+
+# 1. Cleaning Type
+
+table(sudoku$Type)
+
+sudoku$Type<-ifelse(sudoku$Type=="Letter","Letters",sudoku$Type)
+sudoku$Type<-ifelse(sudoku$Type=="Number","Numbers",sudoku$Type)
+sudoku$Type<-ifelse(sudoku$Type=="Symbol","Symbols",sudoku$Type)
+
+sudoku$Type<-factor(sudoku$Type)
+
+
+#2 Clening before2 i.e. inside3 and within_3 are same and out_3 and ouside
+# are same
+
+
+table(sudoku$Before2)
+
+
+sudoku$Before2<-ifelse(sudoku$Before2=="Inside","Within_3",sudoku$Before2)
+sudoku$Before2<-ifelse(sudoku$Before2=="Outside","Out_3",sudoku$Before2)
+
+
+## Filling missing values of before1 using before2 details
+
+sudoku%>%
+  mutate(Before1=replace(Before1,
+                         is.na(Before1)&!is.na(Before2)&Before2=='No',
+                         'No')
+  )->sudoku     
+
+sudoku%>%
+  mutate(Before1=replace(Before1,
+                         is.na(Before1)&!is.na(Before2)&Before2!='No',
+                         'Yes')
+  )->sudoku 
+
+sudoku$Before1<-factor(ifelse(sudoku$Before1=='Yes',1,0))
+
+table(sudoku$Before1)
+
+
+#### Checking if missing null values in Time2 can be filled using Time1:Min:Sec
+
+sudoku%>%filter(is.na(Time2),!is.na(Time1),!is.na(Mins),!is.na(Seconds))
+
+# As it returns zero rows so Time1,Mins and Seconds are worthless columns so dropping it.
+
+# sudoku%>%select(-Time1,-Mins,-Seconds)->sudoku
+
+sudoku%>%dplyr::select(-Time1,-Mins,-Seconds)->sudoku
+
+glimpse(sudoku)
+
+
+#checking if there is any column filled with value "."
+
+lapply(sudoku,function(x)which((x==".")==T))
+
+sudoku[c(1302,1304,1499,1533,1548),]
+
+# We cannot impute anything for this . 
+
+
+glimpse(sudoku)
+
+
+# Trying to impute before2 using before1 , setting before2='No' if before1=0 
+
+sudoku%>%
+  mutate(Before2=replace(Before2,
+                         is.na(Before2)&!is.na(Before1)&Before1==0,
+                         'No')
+  )->sudoku
+# 
+# sudoku%>%filter(is.na(Before2)&!is.na(Before1)&Before1==0)
+
+
+sudoku%>%filter(is.na(Before2))%>%nrow *100 / nrow(sudoku)
+
+
+# Since around 26% of data is missing even after imputing, 
+# so we skip this column 
+
+
+sudoku%>%filter(is.na(Logic))%>%nrow *100 / nrow(sudoku)
+
+
+# Since around 34.86% of data is missing and we cannot impute this column,
+# so we skip this column 
+
+
+sudoku%>%dplyr::select(-6,-7)->sudoku
+
+
+sudoku%>%filter(is.na(Time2))%>%nrow *100 / nrow(sudoku)
+
+
+# Since around 6% of data is missing so we KEEP this column 
+
+
+#############################################################################
+#############################################################################
+#############################################################################
+#######################****** Phase 2 ******#################################
+#############################################################################
+#############################################################################
+#############################################################################
+
+# Variable Analysis
+# 1. Categorical Data
+
+ggplot(data=sudoku,aes(x=Correct))+geom_bar()+ggtitle("Distribution of Correct")
+
+ggplot(data=sudoku,aes(x=Type,fill=Correct))+geom_bar(position = "fill")+
+  ggtitle("The conditional distribution")
+
+paste("Distribution of Sudoku Type")
+sudoku%>%group_by(Type)%>%count()%>%mutate(Relative_Freq=n/nrow(sudoku)*100)%>%
+  rename(Freq=n)
+
+
+# 2. Continuous Data
+
+sudoku%>%filter(Correct==1)%>%
+  ggplot(data=.,aes(x=Time2))+
+  geom_histogram(breaks=seq(0,max(sudoku$Time2,na.rm = T),by=50),colour='black')+
+  scale_x_continuous(breaks=seq(0,max(sudoku$Time2,na.rm = T),by=100))+
+  ggtitle("Histogram of Correctly Completely Sudoku")
+
+
+sudoku%>%filter(Correct==1)%>%
+  ggplot(data=.,aes(x=Type,y=Time2))+geom_boxplot()+
+  ggtitle("Boxplot of Correctly Completely Sudoku's Time by Sudoku type")
+
+
+sudoku%>%filter(Correct==1)%>%
+  group_by(Type)%>%
+  summarise(min=fivenum(Time2,na.rm = T)[1],
+            Q1=fivenum(Time2,na.rm = T)[2],
+            median=fivenum(Time2,na.rm = T)[3],
+            Q3=fivenum(Time2,na.rm = T)[4],
+            max=fivenum(Time2,na.rm = T)[5],
+            mean=mean(Time2,na.rm = T),
+            iQR=IQR(Time2,na.rm = T),
+            SD=sd(Time2,na.rm = T))
+
+# sudoku%>%filter(Time2==910)
+# We are seeing outliers and need to highlight that
+
+
+####### Chi sq test of independence
+
+# correct vs type 
+# Chi Sq test of independence to check if there is any dependency between 
+# if sudoku was correct and sudoku type at 0.05 significant level
+
+table(Type=sudoku$Type,Correct=sudoku$Correct) 
+
+chisq.test(sudoku$Type,sudoku$Correct)
+
+# pvalue<0.05, so there is evidence to prove that there exists dependency
+# between correct and sudoku type, This can be noticable
+# as we see that greek type has the lowest correct solutions
+
+# correct vs experience
+# Chi Sq test of independence to check if there is any dependency between 
+# if sudoku was correct and sudoku experience at 0.05 significant level
+
+table(Previous_Exp=sudoku$Before1,Correct=sudoku$Correct)
+
+chisq.test(sudoku$Before1,sudoku$Correct)
+
+# pvalue<0.05, so there is evidence to prove that there exists dependency
+# between correct and before hand experience, This can be noticable
+# as we see that those who played before got correct solutions more.
+
+
+# correct vs class
+# Chi Sq test of independence to check if there is any dependency between 
+# if sudoku was correct and class at 0.05 significant level
+
+
+table(Previous_Exp=sudoku$Class,Correct=sudoku$Correct)
+
+chisq.test(sudoku$Class,sudoku$Correct)
+
+
+# pvalue<0.05, so there is evidence to prove that there exists dependency
+# between correct and sudoku class, This can be noticable
+# as we see that those who played before got correct solutions more.
+
+
+################################################################################
+##T test (only on correct data i.e. Sudoku is correct)
+
+
+correct_sudoku<-sudoku%>%filter(Correct==1)
+
+# sudoku%>%lm(data=.,Time2~Type)%>%summary()
+
+
+sudoku_known<-correct_sudoku%>%filter(Type!='Greek')
+sudoku_unknown<-correct_sudoku%>%filter(Type=='Greek')
+
+
+t.test(sudoku_known$Time2,sudoku_unknown$Time2)
+
+
+# A Welch Two Sample t-test detected a significant difference(p<0.05) in mean time to succesfully complete
+# between known letter and uunknown letter in sudoku(greek).
+
+remove(sudoku_known)
+remove(sudoku_unknown)
+
+
+################################################################################
+### One-way ANOVA (only on correct data i.e. Sudoku is correct)
+
+fit<-aov(data=correct_sudoku,Time2~Type)
+
+anova(fit)
+
+# This states there was evidence of an effect of Sudoku type on the
+# length of time to Sudoku completion
+
+# TukeyHSD(fit)
+
+remove(fit)
+remove(correct_sudoku)
+#############################################################################
+#############################################################################
+#############################################################################
+#######################****** Phase 3 ******#################################
+#############################################################################
+#############################################################################
+#############################################################################
+
+
+# Analysis Starts
+# library(epiDisplay)  
+
+# Logistic Regression on all variable except Time2 as we will do different test for Time2
+
+sudoku[-5]->sudoku_1
+
+na.omit(sudoku_1)->sudoku_1
+
+
+# Model Building and validations
+
+before  <-glm(Correct~Before1,data = sudoku_1,family="binomial")
+type    <-glm(Correct~Type    ,data = sudoku_1,family="binomial")
+class   <-glm(Correct~Class,data = sudoku_1,family="binomial")
+
+before_type  <-glm(Correct~Before1+Type,data = sudoku_1,family="binomial")
+type_class    <-glm(Correct~Type+Class,data = sudoku_1,family="binomial")
+class_before  <-glm(Correct~Class+Before1,data = sudoku_1,family="binomial")
+
+full<-glm(Correct~Before1+Type+Class,data = sudoku_1,family="binomial")
+
+intersect_model<-glm(Correct~Before1*Type*Class,data = sudoku_1,family="binomial")
+
+intercept<-glm(Correct~1,data = sudoku_1,family="binomial")
+
+# Model Bulding and variable significance testing
+
+# Hypothesis 1 : 
+# H0 : Intersection is not significant (Reduced model is better)
+# H1 : Intersection is significant (full model is better)
+
+anova(full,intersect_model, test = "LR")
+
+
+# This states Intersection is not significant and thus go with a reduced model(full)
+# -----------------------------------------------------------------
+
+# Hypothesis 2 : 
+# H0 : Class is not significant (Reduced model is better)
+# H1 : Class is significant (full model is better)
+
+anova(before_type,full, test = "LR")
+
+
+# This states class is not significant and thus go with a reduced model
+# -----------------------------------------------------------------
+# Hypothesis 3 : 
+# H0 : Type is not significant (Reduced model is better)
+# H1 : Type is significant (full model is better)
+
+anova(before,before_type, test = "LRT")
+
+# This states Type is significant and thus go with a full model
+
+# ------------------------------------------------------------------
+# Hypothesis 4 : 
+# H0 : Before1  is not significant (Reduced model is better)
+# H1 : Before1  is significant (full model is better)
+
+anova(type,before_type, test = "LRT")
+
+# This states Before1 is significant and thus go with a full model
+# ---------------------------------------------------------------------
+
+
+#Interpretation  
+summary(before_type)
+exp(before_type$coefficients)
+
+# 
+# Hypothesis 1:
+#   
+#   The odds of successfully completing the Sudoku correctly were 9.81 times higher for 
+# those who had played Sudoku before relative to those who had not played before
+# 
+# Hypothesis 2:
+#   
+#   The odds of successfully completing the Sudoku correctly were 1.79 times higher for 
+# those who had played Sudoku of type "Letters" rather than "Greek",
+# The odds of successfully completing the Sudoku correctly were 1.99 times higher for 
+# those who had played Sudoku of type "Numbers" rather than "Greek",
+# The odds of successfully completing the Sudoku correctly were 1.79 times higher for 
+# those who had played Sudoku of type "Symbols" rather than "Greek",
+# 
+# Hypothesis 3:
+#   
+#   The class had no effect on successfully completing the sudoku puzzle so as 
+# hypothesis 3 we will do survival analysis on Time2
+# 
+
+
+
+
+# Approach 2 of variable selection
+
+require(MuMIn) 
+model.sel(intercept,before,type,class,before_type,type_class,class_before,full,
+          intersect_model) 
+
+
+# This states as approach1 go with model having Before1 and Type  as it has lowest AIC.
+
+
+# Approach 3 using StepAIC
+
+library(MASS)
+stepAIC(intersect_model,trace = T)$anova
+
+# This also states go with model having Before1 and Type  as it has lowest AIC.
+
+
+
+remove(before)
+remove(type)
+remove(class)
+remove(type_class)
+remove(class_before)
+remove(full)
+remove(intercept)
+remove(intersect_model)
+remove(sudoku_1)
+
+# Accuracy of model is around 81%
+table(sudoku$Correct,as.numeric(predict(before_type,newdata = sudoku
+                                        ,type = "response")>0.5))
+
+
+remove(before_type)
+
+############# Survival Analysis on Time2
+
+library(survival)
+# install.packages("survminer")
+library(survminer)
+library(ggfortify)
+
+# Event: 1-> sucesfuly completed
+# 0-> not completed
+# 
+# Time2 is the survival time
+
+
+sudoku[c(1,2,3,4,5)]%>%as.data.frame->sudoku_survival
+
+
+fct_explicit_na(sudoku_survival$Before1)->sudoku_survival$Before1
+
+as.character(sudoku_survival$Correct)%>%as.numeric->sudoku_survival$Correct
+
+surv_object <- Surv(time = sudoku_survival$Time2,event = sudoku_survival$Correct)
+
+
+fit1 <- survfit(surv_object ~ 1, data = sudoku_survival)
+
+fit2 <- survfit(surv_object ~ Type, data = sudoku_survival)
+# summary(fit2)
+
+
+# res.sum <- surv_summary(fit2)
+
+# res<-fortify(fit1)
+
+# # Understanding Summary,
+# time is nothing but time2 in ascending order
+# n.risk is the the total no of person at risk of dying i.e those who didnt solved puzzle yet.
+# n.event is the no of people that solved the event at time=time2
+# survival is the no of people still alive in percentage
+
+# https://rpkgs.datanovia.com/survminer/index.html
+
+ggsurvplot(fit1, data = sudoku_survival, pval = T,conf.int = T,
+           risk.table = F,censor.size=4,censor.shape="|")
+
+ggsurvplot(fit2, data = sudoku_survival, pval = T,conf.int = T,
+           risk.table = F,censor.size=7,censor.shape="|")
+
+# 
+# ggplot(data = res, aes(x = time, y = surv, color = strata)) +
+#   geom_line() + 
+#   # plot censor marks
+#   geom_point(aes(shape = factor(ifelse(n.censor >= 1, 1, NA)))) + 
+#   # format censor shape as "+"
+#   scale_shape_manual(values = 3) + 
+#   # hide censor legend 
+#   guides(shape = "none") +ggtitle("Kaplan-Meier curves")
+
+
+# ----------------------------------------
+
+# Time entries on worksheets with incorrect solutions contain information on the 
+# quantity of interest since they give LOWER bounds for true completion times.
+# The continuous variable time is therefore referred to as right-censored.
+# 
+# In our context below terms indicates,
+#   a. Survival -> Puzzle has not yet correctly completed.
+#   b. Death    -> Puzzle has correcly completed.
+#   c. Censor point -> TIme of a person who completed puzzle incorrectly.
+
+# T -> Time of death(after correctly completing)
+# 
+# survival function given as, S(t) = P(T≥ t) for time t.
+# 
+# The survival function is a function that gives the probability that a patient,
+# device, or other object of interest will survive beyond any specified time(here t).
+# 
+# Using this method, plot shows the estimated survival probabilities(y-axis)
+# versus time (x-axis) for each Sudoku type. 
+# Censored data points are indicated by a | symbol and the probability of
+# completing the Sudoku puzzle correctly by time t is estimated by 1- E(S(t)) 
+# (indicates estimated).
+
+fit2
+
+# From the fit1 function we can see correctly completing sudoku given the sudoku type
+# is 125 seconds for Numbers, 149 seconds for Letters, 205 seconds for Symbols,
+# while 246 seconds for Greek, these unbiased median
+# estimates are all higher than the biased medians presented for
+# the subset of correct Sudokus only
+# 
+# Hypothesis:
+#   
+#   Ho: There is no statistical difference in median survival time between 4 different
+# types of sudoku puzzle
+# 
+# HA: This is statistical difference in median survival time between 4 different
+# types of sudoku puzzle
+
+
+
+library(coin)
+
+logrank_test(surv_object~Type, data=sudoku_survival)
+
+
+# From p value we can say accept alternate hypothesis and say 
+# There is statistical difference in median survival time between 4 different
+# types of sudoku puzzle
+```
+
+
+## __Sudoko Visualisation__ 
+
+### {.tabset .tabset-fade}
+
+#### __Visualisation__ 
+
+
+```{r}
+library(RCurl)
+getURL('https://public.tableau.com/profile/jak94#!/vizhome/SudokuProjectTableauWorkbook/Viz1', ssl.verifyhost=FALSE, ssl.verifypeer=FALSE)
+
+```
+
